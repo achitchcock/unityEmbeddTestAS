@@ -26,13 +26,17 @@ import android.os.AsyncTask;
 
 import com.unity3d.player.UnityPlayer;
 
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import dji.common.error.DJIError;
 import dji.common.error.DJISDKError;
 import dji.common.flightcontroller.FlightControllerState;
+import dji.common.flightcontroller.virtualstick.FlightControlData;
 import dji.common.util.CommonCallbacks;
 import dji.sdk.base.BaseComponent;
 import dji.sdk.base.BaseProduct;
@@ -71,13 +75,19 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     //------------------------------------
     private djiBackend djiBack;
     private FlightController flightController;
+    private Timer mSendVirtualStickDataTimer;
+    //private SendVirtualStickDataTask mSendVirtualStickDataTask;
+    private float mPitch;
+    private float mRoll;
+    private float mYaw;
+    private float mThrottle;
 
     private String productText;
     private String connectionStatus;
     private String state;
     // ------------------------------------
 
-
+    private UnityPlayer plater;
     protected UnityPlayer mUnityPlayer;
     private Button start;
 
@@ -216,10 +226,10 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     }
 
     private void initFlightController(){
-        BaseProduct base = djiBack.getProductInstance();//DJISDKManager.getInstance().getProduct();
+        BaseProduct base = djiBack.getProductInstance();
         if(base instanceof Aircraft){
             Aircraft myCraft = (Aircraft)base;
-            flightController = myCraft.getFlightController();//DemoApplication.getFlightController();
+            flightController = myCraft.getFlightController();
             if (flightController == null) {
                 return;
             }
@@ -248,7 +258,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             }
         };
 
-        flightController.startTakeoff(null);
+        flightController.startTakeoff(take);
         //flightController.turnOnMotors();
     }
 
@@ -316,6 +326,43 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
      * Checks if there is any missing permissions, and
      * requests runtime permission if needed.
      */
+    /*class SendVirtualStickDataTask extends TimerTask {
+
+        @Override
+        public void run() {
+
+            if (flightController != null) {
+                flightController.sendVirtualStickFlightControlData(
+                        new FlightControlData(
+                                mPitch, mRoll, mYaw, mThrottle
+                        ), new CommonCallbacks.CompletionCallback() {
+                            @Override
+                            public void onResult(DJIError djiError) {
+
+                            }
+                        }
+                );
+            }
+        }
+    }
+
+    // it's yawsome.
+    public void yawSome(){
+        mYaw = 1;
+        if (null == mSendVirtualStickDataTimer) {
+            mSendVirtualStickDataTask = new SendVirtualStickDataTask();
+            mSendVirtualStickDataTimer = new Timer();
+            mSendVirtualStickDataTimer.schedule(mSendVirtualStickDataTask, 100, 200);
+        }
+    }
+
+    public void stopYaw(){
+        mSendVirtualStickDataTimer.cancel();
+        mSendVirtualStickDataTimer.purge();
+        mSendVirtualStickDataTimer = null;
+    }
+
+*/
     private void checkAndRequestPermissions() {
         // Check for permissions
         for (String eachPermission : REQUIRED_PERMISSION_LIST) {

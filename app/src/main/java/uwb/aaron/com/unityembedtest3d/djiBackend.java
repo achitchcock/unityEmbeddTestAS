@@ -152,9 +152,9 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
 
         };
 
-        baseTV = new TextureView(getApplicationContext());
-        baseTex = new SurfaceTexture(10);
-        baseTV.setSurfaceTexture(baseTex);
+        //baseTV = new TextureView(getApplicationContext());
+        //baseTex = new SurfaceTexture(10);
+        //baseTV.setSurfaceTexture(baseTex);
         onSurfaceTextureAvailable(null,16*40,9*40); //for YUV data
         mCodecManager.enabledYuvData(true);
 
@@ -233,23 +233,27 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         });
 
         // may not need ----
-        baseTex.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
+        /*baseTex.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
             @Override
             public void onFrameAvailable(SurfaceTexture surfaceTexture) {
                 Log.d(TAG, "onFrameAvailable: A NEW FRAME IS AVAILABLE!");
             }
         });
-
+*/
 
         mReceivedVideoDataCallBack = new VideoFeeder.VideoDataCallback() {
             @Override
             public void onReceive(byte[] videoBuffer, int size) {
                 //if (vid > 0 && vid % 10 == 0 ) {
                 //    vid = 0;
+                if(ready == false){
+                    Log.d(TAG, "onReceive: VIDEO BUFF DROP.  ready == false");
+                    return;
+                }
 
                 if (mCodecManager != null) {
                     mCodecManager.sendDataToDecoder(videoBuffer, size);
-                    Log.d(TAG, "onReceive: VIDEO SENT: " + vid);
+                    Log.d(TAG, "onReceive: VIDEO SENT: " + size);
                     //Bitmap b = baseTV.getBitmap();
                     //Log.d(TAG, "onReceive: BITMAP"+ baseTV.getBitmap().toString());
                 } else {
@@ -271,6 +275,13 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         return jdata;
     }
 
+    public void enableVideo(){
+        ready = true;
+    }
+
+    public void disableVideo(){
+        ready = false;
+    }
 
     /*@Override
     public void onTerminate() {
