@@ -173,6 +173,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         if(djiBack == null){
             djiBack = new djiBackend();
             djiBack.setContext(getApplication());
+            djiBack.setUnityObject(mUnityPlayer);
             //djiBack.setResultReceiver(rec);
             djiBack.onCreate();
 

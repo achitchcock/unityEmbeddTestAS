@@ -39,8 +39,10 @@ import dji.sdk.codec.DJICodecManager;
 import dji.sdk.products.Aircraft;
 import dji.sdk.products.HandHeld;
 import dji.sdk.sdkmanager.DJISDKManager;
+import dji.thirdparty.org.java_websocket.framing.Framedata;
 
 import com.secneo.sdk.Helper;
+import com.unity3d.player.UnityPlayer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -58,6 +60,7 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
     public Handler mHandler;
 
     private Application instance;
+    private UnityPlayer mUnityPlayer;
 
     private String TAG = "BACKEND_DRONE";
     private TextureView baseTV;
@@ -161,61 +164,73 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         mCodecManager.setYuvDataCallback(new DJICodecManager.YuvDataCallback() {
             @Override
             public void onYuvDataReceived(ByteBuffer yuvFrame, int dataSize, int width, int height) {
-                if(ready == false){
+                if(!ready){
                     return;
                 }
                 ready = false;
+                boolean async = true;
                 Log.d(TAG, "onYuvDataReceived: DATA SIZE: "+ dataSize + " Width: "+width+ " Height " + height);
                 byte[] dat = new byte[dataSize];
                 yuvFrame.get(dat);
 
-                //---------
-                byte[] y = new byte[width * height];
-                byte[] u = new byte[width * height / 4];
-                byte[] v = new byte[width * height / 4];
-                byte[] nu = new byte[width * height / 4]; //
-                byte[] nv = new byte[width * height / 4];
-                System.arraycopy(dat, 0, y, 0, y.length);
-                for (int i = 0; i < u.length; i++) {
-                    v[i] = dat[y.length + 2 * i];
-                    u[i] = dat[y.length + 2 * i + 1];
-                }
-                int uvWidth = width / 2;
-                int uvHeight = height / 2;
-                for (int j = 0; j < uvWidth / 2; j++) {
-                    for (int i = 0; i < uvHeight / 2; i++) {
-                        byte uSample1 = u[i * uvWidth + j];
-                        byte uSample2 = u[i * uvWidth + j + uvWidth / 2];
-                        byte vSample1 = v[(i + uvHeight / 2) * uvWidth + j];
-                        byte vSample2 = v[(i + uvHeight / 2) * uvWidth + j + uvWidth / 2];
-                        nu[2 * (i * uvWidth + j)] = uSample1;
-                        nu[2 * (i * uvWidth + j) + 1] = uSample1;
-                        nu[2 * (i * uvWidth + j) + uvWidth] = uSample2;
-                        nu[2 * (i * uvWidth + j) + 1 + uvWidth] = uSample2;
-                        nv[2 * (i * uvWidth + j)] = vSample1;
-                        nv[2 * (i * uvWidth + j) + 1] = vSample1;
-                        nv[2 * (i * uvWidth + j) + uvWidth] = vSample2;
-                        nv[2 * (i * uvWidth + j) + 1 + uvWidth] = vSample2;
+                // async code
+                if(async) {
+                    Log.d( TAG, "ASYNC VERSION!");
+                    Video_Frame_Data[] b = new Video_Frame_Data[1];
+                    b[0] = new Video_Frame_Data(dat, width, height);
+                    new processFrame().execute(b);
+                } else {
+                    //---------
+                    Log.d( TAG, "NON-ASYNC VERSION!");
+                    byte[] y = new byte[width * height];
+                    byte[] u = new byte[width * height / 4];
+                    byte[] v = new byte[width * height / 4];
+                    byte[] nu = new byte[width * height / 4]; //
+                    byte[] nv = new byte[width * height / 4];
+                    System.arraycopy(dat, 0, y, 0, y.length);
+                    for (int i = 0; i < u.length; i++) {
+                        v[i] = dat[y.length + 2 * i];
+                        u[i] = dat[y.length + 2 * i + 1];
                     }
-                }
-                byte[] bytes = new byte[dat.length];
-                System.arraycopy(y, 0, bytes, 0, y.length);
-                for (int i = 0; i < u.length; i++) {
-                    bytes[y.length + (i * 2)] = nv[i];
-                    bytes[y.length + (i * 2) + 1] = nu[i];
-                }
-                //----------
+                    int uvWidth = width / 2;
+                    int uvHeight = height / 2;
+                    for (int j = 0; j < uvWidth / 2; j++) {
+                        for (int i = 0; i < uvHeight / 2; i++) {
+                            byte uSample1 = u[i * uvWidth + j];
+                            byte uSample2 = u[i * uvWidth + j + uvWidth / 2];
+                            byte vSample1 = v[(i + uvHeight / 2) * uvWidth + j];
+                            byte vSample2 = v[(i + uvHeight / 2) * uvWidth + j + uvWidth / 2];
+                            nu[2 * (i * uvWidth + j)] = uSample1;
+                            nu[2 * (i * uvWidth + j) + 1] = uSample1;
+                            nu[2 * (i * uvWidth + j) + uvWidth] = uSample2;
+                            nu[2 * (i * uvWidth + j) + 1 + uvWidth] = uSample2;
+                            nv[2 * (i * uvWidth + j)] = vSample1;
+                            nv[2 * (i * uvWidth + j) + 1] = vSample1;
+                            nv[2 * (i * uvWidth + j) + uvWidth] = vSample2;
+                            nv[2 * (i * uvWidth + j) + 1 + uvWidth] = vSample2;
+                        }
+                    }
+                    byte[] bytes = new byte[dat.length];
+                    System.arraycopy(y, 0, bytes, 0, y.length);
+                    for (int i = 0; i < u.length; i++) {
+                        bytes[y.length + (i * 2)] = nv[i];
+                        bytes[y.length + (i * 2) + 1] = nu[i];
+                    }
+                    //----------
 
-                Log.d(TAG, "onYuvDataReceived: BYTE GET");
-                YuvImage yuvimage = new YuvImage(bytes, ImageFormat.NV21, width, height, null);
-                Log.d(TAG, "onYuvDataReceived: YUVIMAGE created");
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                yuvimage.compressToJpeg(new Rect(0, 0, width, height), 80, baos);
-                Log.d(TAG, "onYuvDataReceived: compress");
-                jdata = baos.toByteArray();
-                ready = true;
+                    Log.d(TAG, "onYuvDataReceived: BYTE GET");
+                    YuvImage yuvimage = new YuvImage(bytes, ImageFormat.NV21, width, height, null);
+                    Log.d(TAG, "onYuvDataReceived: YUVIMAGE created");
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    yuvimage.compressToJpeg(new Rect(0, 0, width, height), 80, baos);
+                    Log.d(TAG, "onYuvDataReceived: compress");
+                    jdata = baos.toByteArray();
+                    mUnityPlayer.UnitySendMessage("Canvas","set_frame_ready","true");
+                    ready = true;
+                }
+
                 //new SavePhotoTask().execute(jdata);
-                Log.d(TAG, "onYuvDataReceived: JPEG SIZE: " + jdata.length);
+                //Log.d(TAG, "onYuvDataReceived: JPEG SIZE: " + jdata.length);
                 /*Bundle b = new Bundle();
                 //byte[] dat = new byte[dataSize/2];
 
@@ -223,12 +238,12 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
                 b.putInt("BUFF_SIZE", jdata.length);
                 b.putString("ServiceTag","djiBackend");
                 */
-                try{
+                /*try{
                     Log.d(TAG, "onYuvDataReceived: BUNDLE COULD BE SENT");
                     //rec.send(1,b);
                 }catch (Exception exc){
                     Log.d(TAG,exc.toString());
-                }
+                }*/
             }
         });
 
@@ -269,6 +284,10 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
 
 
         ready = true;
+    }
+
+    public void setUnityObject(UnityPlayer player){
+        mUnityPlayer = player;
     }
 
     public byte[] getJdata() {
@@ -396,8 +415,77 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         }
     }
 
+    class Video_Frame_Data{
+        public byte[] frame;
+        int frame_width;
+        int frame_height;
+        public  Video_Frame_Data(byte[] vid_frame, int width, int height){
+            frame = vid_frame;
+            frame_width = width;
+            frame_height = height;
+        }
+    }
 
+    class processFrame extends AsyncTask<Video_Frame_Data,Void, byte[]> {
+        @Override
+        protected byte[] doInBackground(Video_Frame_Data... data) {
 
+            byte[] dat = data[0].frame;
+            int height = data[0].frame_height;
+            int width = data[0].frame_width;
+            byte[] y = new byte[width * height];
+            byte[] u = new byte[width * height / 4];
+            byte[] v = new byte[width * height / 4];
+            byte[] nu = new byte[width * height / 4]; //
+            byte[] nv = new byte[width * height / 4];
+            System.arraycopy(dat, 0, y, 0, y.length);
+            for (int i = 0; i < u.length; i++) {
+                v[i] = dat[y.length + 2 * i];
+                u[i] = dat[y.length + 2 * i + 1];
+            }
+            int uvWidth = width / 2;
+            int uvHeight = height / 2;
+            for (int j = 0; j < uvWidth / 2; j++) {
+                for (int i = 0; i < uvHeight / 2; i++) {
+                    byte uSample1 = u[i * uvWidth + j];
+                    byte uSample2 = u[i * uvWidth + j + uvWidth / 2];
+                    byte vSample1 = v[(i + uvHeight / 2) * uvWidth + j];
+                    byte vSample2 = v[(i + uvHeight / 2) * uvWidth + j + uvWidth / 2];
+                    nu[2 * (i * uvWidth + j)] = uSample1;
+                    nu[2 * (i * uvWidth + j) + 1] = uSample1;
+                    nu[2 * (i * uvWidth + j) + uvWidth] = uSample2;
+                    nu[2 * (i * uvWidth + j) + 1 + uvWidth] = uSample2;
+                    nv[2 * (i * uvWidth + j)] = vSample1;
+                    nv[2 * (i * uvWidth + j) + 1] = vSample1;
+                    nv[2 * (i * uvWidth + j) + uvWidth] = vSample2;
+                    nv[2 * (i * uvWidth + j) + 1 + uvWidth] = vSample2;
+                }
+            }
+            byte[] bytes = new byte[dat.length];
+            System.arraycopy(y, 0, bytes, 0, y.length);
+            for (int i = 0; i < u.length; i++) {
+                bytes[y.length + (i * 2)] = nv[i];
+                bytes[y.length + (i * 2) + 1] = nu[i];
+            }
+            //----------
+
+            Log.d(TAG, "onYuvDataReceived: BYTE GET");
+            YuvImage yuvimage = new YuvImage(bytes, ImageFormat.NV21, width, height, null);
+            Log.d(TAG, "onYuvDataReceived: YUVIMAGE created");
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            yuvimage.compressToJpeg(new Rect(0, 0, width, height), 80, baos);
+            Log.d(TAG, "onYuvDataReceived: compress");
+            jdata = baos.toByteArray();
+            mUnityPlayer.UnitySendMessage("Canvas","set_frame_ready","true");
+            ready = true;
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(byte[] bytes) {
+            super.onPostExecute(bytes);
+        }
+    }
 }
 
 
