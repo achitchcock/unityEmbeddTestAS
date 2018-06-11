@@ -36,8 +36,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import dji.common.error.DJIError;
 import dji.common.error.DJISDKError;
 import dji.common.flightcontroller.FlightControllerState;
+import dji.common.flightcontroller.FlightOrientationMode;
 import dji.common.flightcontroller.virtualstick.FlightControlData;
 import dji.common.util.CommonCallbacks;
+import dji.keysdk.FlightControllerKey;
 import dji.sdk.base.BaseComponent;
 import dji.sdk.base.BaseProduct;
 import dji.sdk.flightcontroller.FlightController;
@@ -76,7 +78,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     private djiBackend djiBack;
     private FlightController flightController;
     private Timer mSendVirtualStickDataTimer;
-    //private SendVirtualStickDataTask mSendVirtualStickDataTask;
+    private SendVirtualStickDataTask mSendVirtualStickDataTask;
     private float mPitch;
     private float mRoll;
     private float mYaw;
@@ -258,7 +260,6 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
                 }
             }
         };
-
         flightController.startTakeoff(take);
         //flightController.turnOnMotors();
     }
@@ -323,15 +324,11 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     //#############################################################################################
     // DJI created functions
     //#############################################################################################
-    /**
-     * Checks if there is any missing permissions, and
-     * requests runtime permission if needed.
-     */
-    /*class SendVirtualStickDataTask extends TimerTask {
+
+    class SendVirtualStickDataTask extends TimerTask {
 
         @Override
         public void run() {
-
             if (flightController != null) {
                 flightController.sendVirtualStickFlightControlData(
                         new FlightControlData(
@@ -339,7 +336,9 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
                         ), new CommonCallbacks.CompletionCallback() {
                             @Override
                             public void onResult(DJIError djiError) {
-
+                                if(null != djiError){
+                                    showToast(djiError.toString());    
+                                }
                             }
                         }
                 );
@@ -347,9 +346,51 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         }
     }
 
+    public void setVirtualControlActive(boolean setting){
+        if(setting){
+            CommonCallbacks.CompletionCallback callback = new CommonCallbacks.CompletionCallback() {
+                @Override
+                public void onResult(DJIError djiError) {
+                    if (null == djiError) {
+                        showToast("Virtual Sticks Enabled.");
+                    } else {
+                        showToast(djiError.getDescription());
+                    }
+                }
+            };
+            flightController.setVirtualStickModeEnabled(true, callback);
+
+            flightController.setFlightOrientationMode(FlightOrientationMode.AIRCRAFT_HEADING, new CommonCallbacks.CompletionCallback() {
+                @Override
+                public void onResult(DJIError djiError) {
+                    if (null == djiError) {
+                        showToast("Flight Orientation Mode set to: AIRCRAFT HEADING");
+                    } else {
+                        showToast(djiError.getDescription());
+                    }
+                }
+            });
+        }else{
+            CommonCallbacks.CompletionCallback callback = new CommonCallbacks.CompletionCallback() {
+                @Override
+                public void onResult(DJIError djiError) {
+                    if (null == djiError) {
+                        showToast("Virtual Sticks Disabled.");
+                    } else {
+                        showToast(djiError.getDescription());
+                    }
+                }
+            };
+            flightController.setVirtualStickModeEnabled(false, callback);
+        }
+    }
+
+
+
     // it's yawsome.
     public void yawSome(){
-        mYaw = 1;
+        Log.d(TAG, "yawSome: " + flightController.isVirtualStickControlModeAvailable());
+
         if (null == mSendVirtualStickDataTimer) {
             mSendVirtualStickDataTask = new SendVirtualStickDataTask();
             mSendVirtualStickDataTimer = new Timer();
@@ -361,9 +402,39 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         mSendVirtualStickDataTimer.cancel();
         mSendVirtualStickDataTimer.purge();
         mSendVirtualStickDataTimer = null;
+        flightController.setVirtualStickModeEnabled(false,  new CommonCallbacks.CompletionCallback() {
+            @Override
+            public void onResult(DJIError djiError) {
+                if (null == djiError) {
+                    showToast("VIRTUAL STICKS DISABLED.");
+                } else {
+                    showToast(djiError.getDescription());
+                }
+            }
+        });
     }
 
-*/
+    public void setYaw(float val){
+        mYaw = val;
+    }
+
+    public void setRoll(float val){
+        mRoll = val;
+    }
+
+    public void setPitch(float val){
+        mPitch = val;
+    }
+
+    public void setThrottle(float val){
+        mThrottle = val;
+    }
+
+
+    /**
+     * Checks if there is any missing permissions, and
+     * requests runtime permission if needed.
+     */
     private void checkAndRequestPermissions() {
         // Check for permissions
         for (String eachPermission : REQUIRED_PERMISSION_LIST) {

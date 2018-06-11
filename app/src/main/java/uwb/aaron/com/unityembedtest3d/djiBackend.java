@@ -69,6 +69,7 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
     protected DJICodecManager mCodecManager = null;
     private ResultReceiver rec;
     private Boolean ready;
+    private Boolean video_enabled;
     private byte[] jdata;
 
     private int vid = 0;
@@ -127,7 +128,7 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         Log.d(TAG, "onCreate: DJIBACKEND LOG TESTING");
         super.onCreate();
         mHandler = new Handler(Looper.getMainLooper());
-
+        video_enabled = true;
         mDJIComponentListener = new BaseComponent.ComponentListener() {
 
             @Override
@@ -164,7 +165,8 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         mCodecManager.setYuvDataCallback(new DJICodecManager.YuvDataCallback() {
             @Override
             public void onYuvDataReceived(ByteBuffer yuvFrame, int dataSize, int width, int height) {
-                if(!ready){
+                if(!ready || !video_enabled){
+                    Log.d(TAG, "onYuvDataReceived: VIDEO READY:"+ready+" VIDEO ENABLED:"+video_enabled);
                     return;
                 }
                 ready = false;
@@ -295,22 +297,14 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
     }
 
     public void enableVideo(){
+        video_enabled = true;
         ready = true;
     }
 
     public void disableVideo(){
+        video_enabled = false;
         ready = false;
     }
-
-    /*@Override
-    public void onTerminate() {
-        super.onTerminate();
-    }
-*/
-    /*public Bitmap getBitmap(){
-        //baseTex.updateTexImage();
-        //return baseTV.getBitmap();
-    }*/
 
      /* Video functions */
 
