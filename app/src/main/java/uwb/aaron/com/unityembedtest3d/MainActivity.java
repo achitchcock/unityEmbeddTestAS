@@ -1,5 +1,8 @@
 package uwb.aaron.com.unityembedtest3d;
 
+
+// Android Imports
+
 import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -8,15 +11,22 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.InputEvent;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -24,27 +34,40 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 import android.os.AsyncTask;
 
+// Unity Imports
 import com.unity3d.player.UnityPlayer;
 
-
+// Java Imports
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+// DJI Imports
 import dji.common.error.DJIError;
 import dji.common.error.DJISDKError;
 import dji.common.flightcontroller.FlightControllerState;
 import dji.common.flightcontroller.FlightOrientationMode;
 import dji.common.flightcontroller.virtualstick.FlightControlData;
+import dji.common.mission.followme.FollowMeMission;
+import dji.common.model.LocationCoordinate2D;
 import dji.common.util.CommonCallbacks;
 import dji.keysdk.FlightControllerKey;
 import dji.sdk.base.BaseComponent;
 import dji.sdk.base.BaseProduct;
 import dji.sdk.flightcontroller.FlightController;
+import dji.sdk.mission.followme.FollowMeMissionOperator;
 import dji.sdk.products.Aircraft;
 import dji.sdk.sdkmanager.DJISDKManager;
+import dji.common.flightcontroller.virtualstick.*;
+import dji.common.mission.followme.*;
+import dji.thirdparty.rx.Observable;
+import dji.thirdparty.rx.Subscription;
+import dji.thirdparty.rx.functions.Action1;
+import dji.thirdparty.rx.schedulers.Schedulers;
+
 
 public class MainActivity extends AppCompatActivity {//implements View.OnClickListener {
 
@@ -77,28 +100,32 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     //------------------------------------
     private djiBackend djiBack;
     private FlightController flightController;
+    private FollowMeMissionOperator followOp;
     private Timer mSendVirtualStickDataTimer;
     private SendVirtualStickDataTask mSendVirtualStickDataTask;
-    private float mPitch;
-    private float mRoll;
-    private float mYaw;
-    private float mThrottle;
+    private float mPitch, mRoll, mYaw, mThrottle;
 
+    //--------------------------------------
+    private float initHeight = 2f;
+    private LocationCoordinate2D movingObjectLocation;
+    private AtomicBoolean isRunning = new AtomicBoolean(false);
+    private Subscription timerSubcription;
+    private Observable<Long> timer = Observable.timer(100, TimeUnit.MILLISECONDS).observeOn(Schedulers.computation()).repeat();
+    private LocationManager locationManager;
+    private LocationListener listener;
+
+    //-------------------------------------
     private String productText;
     private String connectionStatus;
     private String state;
     // ------------------------------------
 
-    private UnityPlayer plater;
     protected UnityPlayer mUnityPlayer;
     private Button start;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        //setContentView(R.layout.startscreen);
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             checkAndRequestPermissions();
         }
@@ -111,13 +138,36 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         //mUnityPlayer = new UnityPlayer(this);
         //setContentView(mUnityPlayer);
         mUnityPlayer = new UnityPlayer(this);
+
         setContentView(mUnityPlayer);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         mHandler = new Handler(Looper.getMainLooper());
+        mUnityPlayer.requestFocus();
+        //startLocationService();
     }
 
-    public String getProductText() {
+    // Joystick code to handle events and pass them on to Unity3D
 
+    @Override
+    public boolean onGenericMotionEvent(MotionEvent event) {
+        mUnityPlayer.injectEvent(event);
+        return true;
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        mUnityPlayer.injectEvent(event);
+        return true;
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        mUnityPlayer.injectEvent(event);
+        return true;
+    }
+
+    //  ---------
+    public String getProductText() {
         return productText;
     }
 
@@ -125,11 +175,11 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         return connectionStatus;
     }
 
-    public byte[] getVid(){
-        try{
+    public byte[] getVid() {
+        try {
             return djiBack.getJdata();
-        }catch (Exception e){
-            Log.d(TAG, "getVid: "+ e.toString());
+        } catch (Exception e) {
+            Log.d(TAG, "getVid: " + e.toString());
             return null;
         }
     }
@@ -140,19 +190,19 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
 
     // Flight Controller Functions
 
-    private void flightControllerStatus(){
+    private void flightControllerStatus() {
         try {
             initFlightController();
-        }catch (Exception e){
+        } catch (Exception e) {
             Log.d(TAG, "failed to init flight controller");
         }
         state = "";
-        if( flightController != null){
+        if (flightController != null) {
 
             FlightControllerState st = flightController.getState();
-            if(st.isIMUPreheating()==true){
+            if (st.isIMUPreheating() == true) {
                 state += "| IMU: Preheating. ";
-            }else{
+            } else {
                 state += "| IMU: ready";
             }
             state += "|  Flight Mode: " + st.getFlightModeString();
@@ -161,7 +211,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             state += "| Motors on: " + st.areMotorsOn();
 
 
-        }else {
+        } else {
             Log.d(TAG, "flightControllerStatus: NULL");
         }
         /*if (rec != null){
@@ -171,8 +221,8 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         }*/
     }
 
-    private void setupDroneConnection(){
-        if(djiBack == null){
+    private void setupDroneConnection() {
+        if (djiBack == null) {
             djiBack = new djiBackend();
             djiBack.setContext(getApplication());
             djiBack.setUnityObject(mUnityPlayer);
@@ -184,7 +234,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         IntentFilter filter = new IntentFilter();
         filter.addAction(djiBack.FLAG_CONNECTION_CHANGE);
         registerReceiver(mReceiver, filter);
-        Log.d( TAG, "IntentFilter created" );
+        Log.d(TAG, "IntentFilter created");
     }
 
     protected BroadcastReceiver mReceiver = new BroadcastReceiver() {
@@ -218,7 +268,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             productText = "Product Information";
             connectionStatus = "Status: No Product Connected";
         }
-        Log.d(TAG, "refreshSDKRelativeUI: "+ connectionStatus);
+        Log.d(TAG, "refreshSDKRelativeUI: " + connectionStatus);
 
        /* if (rec != null){
             Bundle b = new Bundle();
@@ -228,48 +278,157 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         }*/
     }
 
-    private void initFlightController(){
+    private void initFlightController() {
         BaseProduct base = djiBack.getProductInstance();
-        if(base instanceof Aircraft){
-            Aircraft myCraft = (Aircraft)base;
+        if (base instanceof Aircraft) {
+            Aircraft myCraft = (Aircraft) base;
             flightController = myCraft.getFlightController();
             if (flightController == null) {
                 return;
             }
-        }else{
-            showToast("Not aircraft.");
+        } else {
+            showToast("Aircraft not connected.");
             return;
         }
     }
 
+    private void takeOff() {
+        if (flightController == null) {
+            showToast("Flightcontroller is Null");
+            return;
+        }
+        flightController.startTakeoff(genericCallback("Takeoff started", true));
+    }
 
-
-    private void takeOff(){
+    private void land() {
         if (flightController == null) {
             showToast("Flightcontroller Null");
             return;
         }
+        flightController.startLanding(genericCallback("Landing started", true));
+    }
 
-        CommonCallbacks.CompletionCallback take = new CommonCallbacks.CompletionCallback() {
-            @Override
-            public void onResult(DJIError djiError) {
-                if (null == djiError) {
-                    showToast("Takeoff started!");
-                } else {
-                    showToast(djiError.getDescription());
+    private void startLocationService(){
+        if(null == locationManager) {
+            locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        }
+        if(null == listener) {
+            listener = new LocationListener() {
+                @Override
+                public void onLocationChanged(Location location) {
+                    movingObjectLocation = new LocationCoordinate2D(location.getLatitude(), location.getLongitude());
+                    mUnityPlayer.UnitySendMessage("Canvas", "setLocationText", "New Location: " + movingObjectLocation.toString());
                 }
+
+                @Override
+                public void onStatusChanged(String s, int i, Bundle bundle) {
+                }
+
+                @Override
+                public void onProviderEnabled(String s) {
+                }
+
+                @Override
+                public void onProviderDisabled(String s) {
+                    Intent i = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                    startActivity(i);
+                }
+            };
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                showToast("Location Permission missing");
+                return;
             }
-        };
-        flightController.startTakeoff(take);
-        //flightController.turnOnMotors();
+            locationManager.requestLocationUpdates("gps", 1000, 0, listener);
+        }
     }
 
-    private void land(){
-        if (flightController == null) {
-            showToast("Flightcontroller Null");
-            return;
+    private double[] getLocation(){
+        if(null != movingObjectLocation){
+            return new double[] {movingObjectLocation.getLatitude(), movingObjectLocation.getLongitude()};
+        }else{
+            return new double[] {0,0};
         }
-        flightController.startLanding(null);
+    }
+
+    private void followMeStart() {
+        if(null == locationManager) {
+            startLocationService();
+        }
+ /*       if(null == listener) {
+            listener = new LocationListener() {
+                @Override
+                public void onLocationChanged(Location location) {
+                    movingObjectLocation = new LocationCoordinate2D(location.getLatitude(), location.getLongitude());
+                    mUnityPlayer.UnitySendMessage("Canvas", "setLocationText", "New Location: " + movingObjectLocation.toString());
+                }
+
+                @Override
+                public void onStatusChanged(String s, int i, Bundle bundle) {
+                }
+
+                @Override
+                public void onProviderEnabled(String s) {
+                }
+
+                @Override
+                public void onProviderDisabled(String s) {
+                    Intent i = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                    startActivity(i);
+                }
+            };
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                showToast("Location Permission missing");
+                return;
+            }
+            locationManager.requestLocationUpdates("gps", 1000, 0, listener);
+        }*/
+        if(null == followOp) {
+            followOp = DJISDKManager.getInstance().getMissionControl().getFollowMeMissionOperator();
+        }
+        showToast("Follow State:"+followOp.getCurrentState().toString());
+        if (followOp.getCurrentState().toString().equals(FollowMeMissionState.READY_TO_EXECUTE.toString())){
+            //ToDo: You need init or get the location of your moving object which will be followed by the aircraft.
+
+
+            followOp.startMission(FollowMeMission.getInstance().initUserData(movingObjectLocation.getLatitude() , movingObjectLocation.getLongitude(), initHeight), new CommonCallbacks.CompletionCallback() {
+                @Override
+                public void onResult(DJIError djiError) {
+                    showToast("Mission Start: " + (djiError == null ? "Successfully" : djiError.getDescription()));
+                }});
+
+            if (!isRunning.get()) {
+                isRunning.set(true);
+                timerSubcription = timer.subscribe(new Action1<Long>() {
+                    @Override
+                    public void call(Long aLong) {
+                        followOp.updateFollowingTarget(new LocationCoordinate2D(movingObjectLocation.getLatitude(),
+                                        movingObjectLocation.getLongitude()),
+                                new CommonCallbacks.CompletionCallback() {
+
+                                    @Override
+                                    public void onResult(DJIError error) {
+                                        showToast("Follow Me target updated...");
+                                        isRunning.set(false);
+                                    }
+                                });
+                    }
+                });
+            }
+        } else{
+            Toast.makeText(getApplicationContext(), followOp.getCurrentState().toString(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+
+    void followMeStop(){
+        showToast("Follow State:"+ followOp.getCurrentState().toString());
+        followOp.stopMission( genericCallback("Stop mission",true) );
+        locationManager.removeUpdates(listener);
+        timerSubcription.unsubscribe();
+        timerSubcription = null;
+        timer = null;
     }
 
 
@@ -321,8 +480,9 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         super.onConfigurationChanged(newConfig);
         if(null != mUnityPlayer){mUnityPlayer.configurationChanged(newConfig);}
     }
+
     //#############################################################################################
-    // DJI created functions
+    // FLight Control Functions
     //#############################################################################################
 
     class SendVirtualStickDataTask extends TimerTask {
@@ -331,87 +491,62 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         public void run() {
             if (flightController != null) {
                 flightController.sendVirtualStickFlightControlData(
-                        new FlightControlData(
-                                mPitch, mRoll, mYaw, mThrottle
-                        ), new CommonCallbacks.CompletionCallback() {
-                            @Override
-                            public void onResult(DJIError djiError) {
-                                if(null != djiError){
-                                    showToast(djiError.toString());    
-                                }
-                            }
-                        }
-                );
+                        new FlightControlData(mPitch, mRoll, mYaw, mThrottle), null);
+                        //genericCallback("", false));
             }
         }
     }
 
     public void setVirtualControlActive(boolean setting){
         if(setting){
-            CommonCallbacks.CompletionCallback callback = new CommonCallbacks.CompletionCallback() {
-                @Override
-                public void onResult(DJIError djiError) {
-                    if (null == djiError) {
-                        showToast("Virtual Sticks Enabled.");
-                    } else {
-                        showToast(djiError.getDescription());
-                    }
-                }
-            };
-            flightController.setVirtualStickModeEnabled(true, callback);
+            flightController.setVirtualStickModeEnabled(true, null);//genericCallback("Virtual Sticks Enabled", true));
+            //showToast("Here:" + 1);
+            try{
+                showToast(flightController.getVerticalControlMode().toString());
+            }catch (Exception e){
+                showToast(e.toString());
+            }
+            flightController.setVerticalControlMode(VerticalControlMode.VELOCITY); //genericCallback("Position", true));
+            //showToast("Here:" + 2);
+            setThrottle(0);
+            //showToast("Here:" + 3);
+            flightController.setYawControlMode(YawControlMode.ANGULAR_VELOCITY);
+            //showToast("Here:" + 4);
+            flightController.setRollPitchControlMode(RollPitchControlMode.VELOCITY);
+            //showToast("Here:" + 5);
 
-            flightController.setFlightOrientationMode(FlightOrientationMode.AIRCRAFT_HEADING, new CommonCallbacks.CompletionCallback() {
-                @Override
-                public void onResult(DJIError djiError) {
-                    if (null == djiError) {
-                        showToast("Flight Orientation Mode set to: AIRCRAFT HEADING");
-                    } else {
-                        showToast(djiError.getDescription());
-                    }
-                }
-            });
+            /*flightController.setFlightOrientationMode(FlightOrientationMode.AIRCRAFT_HEADING,
+                    genericCallback("Flight Orientation Mode set to: AIRCRAFT HEADING", true));
+            //showToast("Here:" + 6);
+            try {
+                startSendingControl();
+            }catch (Exception e){
+                showToast(e.toString());
+            }*/
+            //showToast("Here:" + 7);
         }else{
-            CommonCallbacks.CompletionCallback callback = new CommonCallbacks.CompletionCallback() {
-                @Override
-                public void onResult(DJIError djiError) {
-                    if (null == djiError) {
-                        showToast("Virtual Sticks Disabled.");
-                    } else {
-                        showToast(djiError.getDescription());
-                    }
-                }
-            };
-            flightController.setVirtualStickModeEnabled(false, callback);
+            showToast("Stopping...");
+            //stopSendingControl();
+            flightController.setVirtualStickModeEnabled(false,
+                    genericCallback("Virtual Sticks Disabled", true));
+
         }
     }
 
-
-
-    // it's yawsome.
-    public void yawSome(){
-        Log.d(TAG, "yawSome: " + flightController.isVirtualStickControlModeAvailable());
-
+    public void startSendingControl(){
         if (null == mSendVirtualStickDataTimer) {
             mSendVirtualStickDataTask = new SendVirtualStickDataTask();
             mSendVirtualStickDataTimer = new Timer();
             mSendVirtualStickDataTimer.schedule(mSendVirtualStickDataTask, 100, 200);
+            showToast("Here:" + 8);
         }
     }
 
-    public void stopYaw(){
+    public void stopSendingControl(){
         mSendVirtualStickDataTimer.cancel();
         mSendVirtualStickDataTimer.purge();
         mSendVirtualStickDataTimer = null;
-        flightController.setVirtualStickModeEnabled(false,  new CommonCallbacks.CompletionCallback() {
-            @Override
-            public void onResult(DJIError djiError) {
-                if (null == djiError) {
-                    showToast("VIRTUAL STICKS DISABLED.");
-                } else {
-                    showToast(djiError.getDescription());
-                }
-            }
-        });
+        setVirtualControlActive(false);
     }
 
     public void setYaw(float val){
@@ -430,6 +565,25 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         mThrottle = val;
     }
 
+
+    // Reusable generic callback to reduce code length
+    CommonCallbacks.CompletionCallback genericCallback(final String msg, final boolean show)  {
+        return new CommonCallbacks.CompletionCallback() {
+            @Override
+            public void onResult(DJIError djiError) {
+                if (null == djiError && show) {
+                    showToast(msg);
+                } else {
+                    showToast(djiError.getDescription());
+                }
+            }
+        };
+    }
+
+
+    //#############################################################################################
+    // DJI created functions
+    //#############################################################################################
 
     /**
      * Checks if there is any missing permissions, and
@@ -503,7 +657,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
                         }
                     });
                 }
-            });
+            });  
         }
     }
 

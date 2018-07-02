@@ -8,6 +8,5 @@ public class MApplication extends Application {
     protected void attachBaseContext(Context paramContext) {
         super.attachBaseContext(paramContext);
         Helper.install(MApplication.this);
-
     }
 }
