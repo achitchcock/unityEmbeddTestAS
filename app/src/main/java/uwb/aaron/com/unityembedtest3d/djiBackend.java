@@ -165,6 +165,7 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
         mCodecManager.setYuvDataCallback(new DJICodecManager.YuvDataCallback() {
             @Override
             public void onYuvDataReceived(ByteBuffer yuvFrame, int dataSize, int width, int height) {
+                //ready = true; // test code. don't keep!!!!
                 if(!ready || !video_enabled){
                     Log.d(TAG, "onYuvDataReceived: VIDEO READY:"+ready+" VIDEO ENABLED:"+video_enabled);
                     return;
@@ -172,8 +173,15 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
                 ready = false;
                 boolean async = true;
                 Log.d(TAG, "onYuvDataReceived: DATA SIZE: "+ dataSize + " Width: "+width+ " Height " + height);
-                byte[] dat = new byte[dataSize];
+                byte[] dat;
+                try{
+                    dat = new byte[dataSize];
+                }catch (Exception e){
+                    Log.e(TAG, "onYuvDataReceived: " + "BYTE failed to allocate.");
+                    return;
+                }
                 yuvFrame.get(dat);
+
 
                 // async code
                 if(async) {
@@ -226,7 +234,9 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     yuvimage.compressToJpeg(new Rect(0, 0, width, height), 80, baos);
                     Log.d(TAG, "onYuvDataReceived: compress");
-                    jdata = baos.toByteArray();
+                    synchronized (this){
+                        jdata = baos.toByteArray();
+                    }
                     mUnityPlayer.UnitySendMessage("Canvas","set_frame_ready","true");
                     ready = true;
                 }
@@ -293,7 +303,9 @@ public class djiBackend extends Application implements TextureView.SurfaceTextur
     }
 
     public byte[] getJdata() {
-        return jdata;
+        synchronized (this){
+            return jdata;
+        }
     }
 
     public void enableVideo(){

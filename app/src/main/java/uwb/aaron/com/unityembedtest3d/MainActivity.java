@@ -491,7 +491,17 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         public void run() {
             if (flightController != null) {
                 flightController.sendVirtualStickFlightControlData(
-                        new FlightControlData(mPitch, mRoll, mYaw, mThrottle), null);
+                        new FlightControlData(mPitch, mRoll, mYaw, mThrottle), new CommonCallbacks.CompletionCallback(){
+
+                            @Override
+                            public void onResult(DJIError djiError) {
+                                if( null == djiError){
+                                    Log.d(TAG, "VIRTUAL STICK SENT: "+ mPitch + " "+mRoll+ " "+ mYaw+ " "+ mThrottle);
+                                }else{
+                                    Log.d(TAG, "VIRTUAL STICK: " + djiError.toString());
+                                }
+                            }
+                        });
                         //genericCallback("", false));
             }
         }
@@ -499,22 +509,24 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
 
     public void setVirtualControlActive(boolean setting){
         if(setting){
-            flightController.setVirtualStickModeEnabled(true, null);//genericCallback("Virtual Sticks Enabled", true));
+            flightController.setVirtualStickModeEnabled(true, genericCallback("Virtual Sticks Enabled", true));
             //showToast("Here:" + 1);
-            try{
+            flightController.setVerticalControlMode(VerticalControlMode.VELOCITY); //genericCallback("Position", true));
+            /*try{
                 showToast(flightController.getVerticalControlMode().toString());
             }catch (Exception e){
                 showToast(e.toString());
-            }
-            flightController.setVerticalControlMode(VerticalControlMode.VELOCITY); //genericCallback("Position", true));
+            }*/
+
             //showToast("Here:" + 2);
             setThrottle(0);
             //showToast("Here:" + 3);
             flightController.setYawControlMode(YawControlMode.ANGULAR_VELOCITY);
             //showToast("Here:" + 4);
             flightController.setRollPitchControlMode(RollPitchControlMode.VELOCITY);
+            flightController.setRollPitchCoordinateSystem(FlightCoordinateSystem.BODY);
             //showToast("Here:" + 5);
-
+            startSendingControl();
             /*flightController.setFlightOrientationMode(FlightOrientationMode.AIRCRAFT_HEADING,
                     genericCallback("Flight Orientation Mode set to: AIRCRAFT HEADING", true));
             //showToast("Here:" + 6);
@@ -526,7 +538,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             //showToast("Here:" + 7);
         }else{
             showToast("Stopping...");
-            //stopSendingControl();
+            stopSendingControl();
             flightController.setVirtualStickModeEnabled(false,
                     genericCallback("Virtual Sticks Disabled", true));
 
@@ -538,7 +550,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             mSendVirtualStickDataTask = new SendVirtualStickDataTask();
             mSendVirtualStickDataTimer = new Timer();
             mSendVirtualStickDataTimer.schedule(mSendVirtualStickDataTask, 100, 200);
-            showToast("Here:" + 8);
+            //showToast("Here:" + 8);
         }
     }
 
@@ -546,7 +558,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         mSendVirtualStickDataTimer.cancel();
         mSendVirtualStickDataTimer.purge();
         mSendVirtualStickDataTimer = null;
-        setVirtualControlActive(false);
+        //setVirtualControlActive(false); // circular call bad!
     }
 
     public void setYaw(float val){
