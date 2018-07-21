@@ -50,7 +50,12 @@ import dji.common.error.DJIError;
 import dji.common.error.DJISDKError;
 import dji.common.flightcontroller.FlightControllerState;
 import dji.common.flightcontroller.FlightOrientationMode;
+import dji.common.flightcontroller.GPSSignalLevel;
+import dji.common.flightcontroller.LocationCoordinate3D;
 import dji.common.flightcontroller.virtualstick.FlightControlData;
+import dji.common.gimbal.Rotation;
+import dji.common.gimbal.RotationMode;
+import dji.common.handheldcontroller.ControllerMode;
 import dji.common.mission.followme.FollowMeMission;
 import dji.common.model.LocationCoordinate2D;
 import dji.common.util.CommonCallbacks;
@@ -58,6 +63,7 @@ import dji.keysdk.FlightControllerKey;
 import dji.sdk.base.BaseComponent;
 import dji.sdk.base.BaseProduct;
 import dji.sdk.flightcontroller.FlightController;
+import dji.sdk.gimbal.Gimbal;
 import dji.sdk.mission.followme.FollowMeMissionOperator;
 import dji.sdk.products.Aircraft;
 import dji.sdk.sdkmanager.DJISDKManager;
@@ -104,7 +110,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     private Timer mSendVirtualStickDataTimer;
     private SendVirtualStickDataTask mSendVirtualStickDataTask;
     private float mPitch, mRoll, mYaw, mThrottle;
-
+    private Gimbal mProductGimbal;
     //--------------------------------------
     private float initHeight = 2f;
     private LocationCoordinate2D movingObjectLocation;
@@ -115,9 +121,20 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
     private LocationListener listener;
 
     //-------------------------------------
+    // Flight Controller State Data
+    //-------------------------------------
     private String productText;
     private String connectionStatus;
     private String state;
+    private LocationCoordinate3D droneLocation;
+    private Boolean motorsOn;
+    private boolean isFlying;
+    private GPSSignalLevel GPSlevel;
+    private int satelliteCount;
+
+
+
+
     // ------------------------------------
 
     protected UnityPlayer mUnityPlayer;
@@ -132,6 +149,12 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         connectionStatus = "Status: Unknown";
         productText = "Unknown";
         state = "Unknown";
+        droneLocation = null;
+        motorsOn = false;
+        isFlying = false;
+        GPSlevel = null;
+        satelliteCount = 0;
+        mProductGimbal = null;
         //start = findViewById(R.id.startButton);
         //start.setOnClickListener(this);
         //getWindow().setFormat(PixelFormat.RGBX_8888); // <--- This makes xperia play happy
@@ -200,6 +223,12 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         if (flightController != null) {
 
             FlightControllerState st = flightController.getState();
+            droneLocation = st.getAircraftLocation();
+            motorsOn = st.areMotorsOn();
+            isFlying = st.isFlying();
+            GPSlevel = st.getGPSSignalLevel();
+
+            // State summary string:
             if (st.isIMUPreheating() == true) {
                 state += "| IMU: Preheating. ";
             } else {
@@ -209,16 +238,10 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             state += "\nGPS Signal Level: " + st.getGPSSignalLevel();
             state += "| GPS Satelite count:" + st.getSatelliteCount();
             state += "| Motors on: " + st.areMotorsOn();
-
-
+            state += "| Location" + st.getAircraftLocation().toString();
         } else {
             Log.d(TAG, "flightControllerStatus: NULL");
         }
-        /*if (rec != null){
-            Bundle b = new Bundle();
-            b.putString("FC_STATUS", "Flight Controller status: "+ state);
-            rec.send(0,b);
-        }*/
     }
 
     private void setupDroneConnection() {
@@ -269,13 +292,6 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
             connectionStatus = "Status: No Product Connected";
         }
         Log.d(TAG, "refreshSDKRelativeUI: " + connectionStatus);
-
-       /* if (rec != null){
-            Bundle b = new Bundle();
-            b.putString("CONNECTION_STATUS",  connectionStatus);
-            b.putString("PRODUCT",productText);
-            rec.send(0,b);
-        }*/
     }
 
     private void initFlightController() {
@@ -317,7 +333,7 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
                 @Override
                 public void onLocationChanged(Location location) {
                     movingObjectLocation = new LocationCoordinate2D(location.getLatitude(), location.getLongitude());
-                    mUnityPlayer.UnitySendMessage("Canvas", "setLocationText", "New Location: " + movingObjectLocation.toString());
+                    mUnityPlayer.UnitySendMessage("Canvas", "locationUpdate","");
                 }
 
                 @Override
@@ -431,7 +447,41 @@ public class MainActivity extends AppCompatActivity {//implements View.OnClickLi
         timer = null;
     }
 
+    void initGimbal() {
+        BaseProduct mProduct = djiBack.getProductInstance();
+        if (null != mProduct && mProduct.isConnected()) {
+            //Log.v(TAG, "refreshSDK: True");
+            mProductGimbal = mProduct.getGimbal();
+            mProductGimbal.setControllerMode(ControllerMode.TWO_AXIS, genericCallback("Gimbal Controller mode: two axis", true));
+            //mProductGimbal.fineTunePitchInDegrees(0, genericCallback("Gimbal ran...", true));
+        }
+    }
 
+    void setGimbalRotation(float pitchValue, float rollValue){
+        if(null == mProductGimbal){
+            initGimbal();
+        }
+        mProductGimbal.rotate(new Rotation.Builder().pitch(pitchValue)
+                        .mode(RotationMode.ABSOLUTE_ANGLE)
+                        .yaw(Rotation.NO_ROTATION)
+                        .roll(rollValue)
+                        .time(0)
+                        .build(), genericCallback("Rotation", true));
+
+    }
+
+    void adjustGimbalRotation(float pitchValue, float rollValue){
+        if(null == mProductGimbal){
+            initGimbal();
+        }
+        mProductGimbal.rotate(new Rotation.Builder().pitch(pitchValue)
+                .mode(RotationMode.RELATIVE_ANGLE)
+                .yaw(Rotation.NO_ROTATION)
+                .roll(rollValue)
+                .time(0)
+                .build(), genericCallback("Rotation", true));
+
+    }
 
 
     //#############################################################################################
